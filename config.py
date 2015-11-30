@@ -26,6 +26,7 @@ from util import get_os, yLoader
 from utils.platform import Platform
 from utils.proxy import get_proxy
 from utils.subprocess_output import get_subprocess_output
+from utils.config_stores import ConfigStore
 
 # CONSTANTS
 AGENT_VERSION = "5.7.0"
@@ -34,9 +35,8 @@ UNIX_CONFIG_PATH = '/etc/dd-agent'
 MAC_CONFIG_PATH = '/opt/datadog-agent/etc'
 DEFAULT_CHECK_FREQUENCY = 15   # seconds
 LOGGING_MAX_BYTES = 5 * 1024 * 1024
-SD_BACKENDS = ['etcd']
-SD_TEMPLATE_DIR = '/datadog/check_configs'
-SD_AUTO_CONFIG = '/datadog/_auto_config'
+SD_BACKENDS = ['docker']
+SD_CONFIG_BACKENDS = ['etcd']
 
 log = logging.getLogger(__name__)
 
@@ -396,27 +396,24 @@ def get_config(parse_args=True, cfg_path=None, options=None):
             agentConfig['use_dogstatsd'] = True
 
         # Service discovery
-        if config.has_option('Main', 'service_discovery_backend'):
+        if config.has_option('Main', 'service_discovery_backend') and \
+                config.has_option('Main', 'sd_config_backend'):
             backend = config.get('Main', 'service_discovery_backend')
-            if backend in SD_BACKENDS:
-                agentConfig['service_discovery'] = True
-                agentConfig['sd_backend'] = backend
-                agentConfig['sd_autoconfig_dir'] = SD_AUTO_CONFIG
-                agentConfig['reload_check_configs'] = False
-                if config.has_option('Main', 'backend_template_dir'):
-                    agentConfig['sd_template_dir'] = config.get(
-                        'Main', 'backend_template_dir')
-                else:
-                    agentConfig['sd_template_dir'] = SD_TEMPLATE_DIR
-                if config.has_option('Main', 'sd_backend_host'):
-                    agentConfig['sd_backend_host'] = config.get(
-                        'Main', 'sd_backend_host')
-                if config.has_option('Main', 'sd_backend_port'):
-                    agentConfig['sd_backend_port'] = config.get(
-                        'Main', 'sd_backend_port')
-            else:
+            conf_backend = config.get('Main', 'sd_config_backend')
+            agentConfig['service_discovery'] = True
+            # This flag is used to tell the agent it needs to run reload_configs
+            agentConfig['reload_check_configs'] = False
+            if backend not in SD_BACKENDS:
                 log.error("The backend {0} is not supported. "
                           "Service discovery won't be enabled.".format(backend))
+                agentConfig['service_discovery'] = False
+            if conf_backend in SD_CONFIG_BACKENDS:
+                log.error("The config backend {0} is not supported. "
+                          "Service discovery won't be enabled.".format(conf_backend))
+                agentConfig['service_discovery'] = False
+            additional_config = ConfigStore(backend, config).extract_sd_config(config)
+            for name, value in additional_config:
+                agentConfig[name] = value
 
         # Concerns only Windows
         if config.has_option('Main', 'use_web_info_page'):
