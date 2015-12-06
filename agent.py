@@ -162,11 +162,6 @@ class Agent(Daemon):
         self.restart_interval = int(self._agentConfig.get('restart_interval', RESTART_INTERVAL))
         self.agent_start = time.time()
 
-        # Initialize the service discovery interval
-        self.service_discovery_interval = int(self._agentConfig.get(
-            'service_discovery_interval', SERVICE_DISCOVERY_INTERVAL))
-        self.last_service_discovery = None
-
         profiled = False
         collector_profiled_runs = 0
 
@@ -202,9 +197,11 @@ class Agent(Daemon):
             if self.autorestart and self._should_restart():
                 self._do_restart()
 
-            # Check if we should run service discovery.
-            if self._should_discover_services():
-                self._do_service_discovery()
+            # Check if we should run service discovery (this flag is set in the docker_daemon check).
+            if self._agentConfig.get('reload_check_configs') and self.configs_reloaded is False:
+                self.reload_configs()
+                self.configs_reloaded = True
+                self._agentConfig['reload_check_configs'] = False
 
             # Only plan for next loop if we will continue, otherwise exit quickly.
             if self.run_forever:
@@ -260,24 +257,6 @@ class Agent(Daemon):
             self.collector.stop()
         sys.exit(AgentSupervisor.RESTART_EXIT_STATUS)
 
-    def _should_discover_services(self):
-        """Check if the service discovery should run based on the last run timestamp."""
-        if self.last_service_discovery is None or \
-           int(time.time() - self.last_service_discovery) > self.service_discovery_interval:
-            return True
-        return False
-
-    def _do_service_discovery(self):
-        """Run the docker events crawler and call `reload_configs` if needed"""
-        log.info('Running the service discovery.')
-        should_reload_conf = False
-        if self.last_service_discovery is not None:
-            should_reload_conf = crawl_docker_events(from_ts=int(self.last_service_discovery))
-        else:
-            should_reload_conf = True
-        if should_reload_conf:
-            self.last_service_discovery = time.time()
-            self.reload_configs()
 
 def main():
     options, args = get_parsed_args()

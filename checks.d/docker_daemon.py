@@ -10,17 +10,20 @@ from collections import defaultdict, Counter, deque
 # project
 from checks import AgentCheck
 from config import _is_affirmative
-from utils.dockerutil import find_cgroup, find_cgroup_filename_pattern, get_client, MountException, set_docker_settings
+from utils.dockerutil import find_cgroup, find_cgroup_filename_pattern, get_client, \
+    MountException, set_docker_settings
 from utils.kubeutil import get_kube_labels
 from utils.platform import Platform
 
 
 EVENT_TYPE = 'docker'
 SERVICE_CHECK_NAME = 'docker.service_up'
-SIZE_REFRESH_RATE = 5 # Collect container sizes every 5 iterations of the check
+SIZE_REFRESH_RATE = 5  # Collect container sizes every 5 iterations of the check
 MAX_CGROUP_LISTING_RETRIES = 3
 CONTAINER_ID_RE = re.compile('[0-9a-f]{64}')
 POD_NAME_LABEL = "io.kubernetes.pod.name"
+
+CONFIG_RELOAD_STATUS = ['start', 'die']  # used to trigger service discovery
 
 GAUGE = AgentCheck.gauge
 RATE = AgentCheck.rate
@@ -135,6 +138,7 @@ def get_mountpoints(docker_root):
         mountpoints[metric["cgroup"]] = find_cgroup(metric["cgroup"], docker_root)
     return mountpoints
 
+
 def get_filters(include, exclude):
     # The reasoning is to check exclude first, so we can skip if there is no exclude
     if not exclude:
@@ -164,8 +168,13 @@ class DockerDaemon(AgentCheck):
         AgentCheck.__init__(self, name, init_config,
                             agentConfig, instances=instances)
 
+        self._agentConfig = agentConfig
         self.init_success = False
         self.init()
+        self._service_discovery = all(
+            agentConfig.get('service_discovery'),
+            agentConfig.get('service_discovery_backend' == 'docker')
+        )
 
     def is_k8s(self):
         return self.is_check_enabled("kubernetes")
@@ -262,7 +271,7 @@ class DockerDaemon(AgentCheck):
             self._report_container_size(containers_by_id)
 
         # Send events from Docker API
-        if self.collect_events:
+        if self.collect_events or self._service_discovery:
             self._process_events(containers_by_id)
 
     def _count_and_weigh_images(self):
@@ -579,6 +588,10 @@ class DockerDaemon(AgentCheck):
             self.warning("Failed to report IO metrics from file {0}. Exception: {1}".format(proc_net_file, e))
 
     def _process_events(self, containers_by_id):
+        if self.collect_events is False:
+            # Crawl events for service discovery only
+            self._get_events()
+            return
         try:
             api_events = self._get_events()
             aggregated_events = self._pre_aggregate_events(api_events, containers_by_id)
@@ -588,7 +601,7 @@ class DockerDaemon(AgentCheck):
             return
         except Exception, e:
             self.warning("Unexpected exception when collecting events: {0}. "
-                "Events will be missing".format(e))
+                         "Events will be missing".format(e))
             return
 
         for ev in events:
@@ -598,13 +611,18 @@ class DockerDaemon(AgentCheck):
     def _get_events(self):
         """Get the list of events."""
         now = int(time.time())
+        should_reload_conf = False
         events = []
         event_generator = self.client.events(since=self._last_event_collection_ts,
             until=now, decode=True)
         for event in event_generator:
             if event != '':
                 events.append(event)
+            if event.get('status') in CONFIG_RELOAD_STATUS:
+                should_reload_conf = True
         self._last_event_collection_ts = now
+        if all(should_reload_conf, self._service_discovery):
+            self._agentConfig['reload_check_configs'] = True
         return events
 
     def _pre_aggregate_events(self, api_events, containers_by_id):

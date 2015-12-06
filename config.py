@@ -402,6 +402,7 @@ def get_config(parse_args=True, cfg_path=None, options=None):
                 agentConfig['service_discovery'] = True
                 agentConfig['sd_backend'] = backend
                 agentConfig['sd_autoconfig_dir'] = SD_AUTO_CONFIG
+                agentConfig['reload_check_configs'] = False
                 if config.has_option('Main', 'backend_template_dir'):
                     agentConfig['sd_template_dir'] = config.get(
                         'Main', 'backend_template_dir')
