@@ -807,9 +807,9 @@ def load_check_directory(agentConfig, hostname):
 
     if agentConfig.get('service_discovery'):
         from utils.service_discovery.docker_discovery import get_configs
-        docker_configs = get_configs(agentConfig)
+        service_disco_configs = get_configs(agentConfig)
     else:
-        docker_configs = {}
+        service_disco_configs = {}
 
     # We don't support old style configs anymore
     # So we iterate over the files in the checks.d directory
@@ -835,12 +835,12 @@ def load_check_directory(agentConfig, hostname):
             # Default checks read their config from the "[CHECKNAME].yaml.default" file
             default_conf_path = os.path.join(confd_path, '%s.yaml.default' % check_name)
             if not os.path.exists(default_conf_path):
-                if check_name not in docker_configs:
+                if check_name not in service_disco_configs:
                     log.debug("Default configuration file {0} is missing. "
                               "Skipping check".format(default_conf_path))
                     continue
                 else:
-                    docker_init_config, docker_instances = docker_configs[check_name]
+                    docker_init_config, docker_instances = service_disco_configs[check_name]
                     check_config = {'init_config': docker_init_config, 'instances': docker_instances}
                     skip_config_lookup = True
 

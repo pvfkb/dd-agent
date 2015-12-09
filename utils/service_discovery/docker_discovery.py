@@ -12,8 +12,10 @@ from utils.dockerutil import get_client as get_docker_client
 log = logging.getLogger(__name__)
 docker_client = None
 
-DEFAULT_TIMEOUT = 5
 PLACEHOLDER_REGEX = re.compile(r'%%.+?%%')
+
+
+class SDDockerBackend(SDBackend):
 
 
 def _get_host(container_inspect):
@@ -33,7 +35,7 @@ def _get_port(container_inspect):
     port = None
     try:
         port = container_inspect['NetworkSettings']['Ports'].keys()[0].split("/")[0]
-    except:
+    except (IndexError, KeyError):
         # kubernetes case
         port = container_inspect['Config']['ExposedPorts'].keys()[0].split("/")[0]
     return port
@@ -46,12 +48,6 @@ def _get_explicit_variable(container_inspect, var):
     if conf is not None:
         return conf.get(var)
 
-IMAGE_AND_CHECK = [
-    ('redis', 'redisdb'),
-    ('nginx', 'nginx'),
-    ('mongo', 'mongo'),
-]
-
 
 VAR_MAPPING = {
     'host': _get_host,
@@ -59,53 +55,16 @@ VAR_MAPPING = {
 }
 
 
-def _get_etcd_check_tpl(agentConfig, key, **kwargs):
-    """Retrieve template config strings from etcd."""
-    from utils.etcdutil import get_client as get_etcd_client
-    from utils.etcdutil import set_etcd_settings
-    prefix = agentConfig.get('sd_template_dir')
-    host, port = agentConfig.get('sd_backend_host'), agentConfig.get('sd_backend_port')
-    settings = {'host': host, 'port': port} if host and port else {}
-    set_etcd_settings(settings)
-    etcd_client = get_etcd_client()
-    check_name = None
-    try:
-        # Try to read from the user-supplied config
-        check_name = etcd_client.read(path.join(prefix, key, 'check_name')).value
-    except:
-        # If it failed, try to read from auto-config templates
-        log.info(
-            "Could not find directory {0} in etcd configs, trying to auto-configure the check...".format(key))
-        prefix = agentConfig.get('sd_autoconfig_dir')
-        for image, check in IMAGE_AND_CHECK:
-            if key == image:
-                check_name = key = check
-                break
-    try:
-        init_config_tpl = etcd_client.read(
-            path.join(prefix, key, 'init_config'),
-            timeout=kwargs.get('timeout', DEFAULT_TIMEOUT)).value
-        instance_tpl = etcd_client.read(
-            path.join(prefix, key, 'instance'),
-            timeout=kwargs.get('timeout', DEFAULT_TIMEOUT)).value
-        template = [check_name, init_config_tpl, instance_tpl]
-    except:
-        log.info(
-            'Fetching the value for {0} in etcd failed, '
-            'this check will not be configured by the service discovery.'.format(key))
-        return None
-    return template
-
-
 def _get_template_config(agentConfig, image_name):
     """Extract a template config from a K/V store and returns it as a dict object."""
     # TODO: add more backends
-    if agentConfig.get('sd_backend') == 'etcd':
-        etcd_tpl = _get_etcd_check_tpl(agentConfig, image_name)
-        if etcd_tpl is not None and len(etcd_tpl) == 3 and all(etcd_tpl):
-            check_name, init_config_tpl, instance_tpl = etcd_tpl
-        else:
-            return None
+    config_backend = agentConfig.get('sd_config_backend')
+    tpl = ConfigStore(config_backend).get_check_tpl(image_name)
+    if tpl is not None and len(tpl) == 3 and all(tpl):
+        check_name, init_config_tpl, instance_tpl = tpl
+    else:
+        return None
+
     try:
         # build a list of all variables to replace in the template
         variables = PLACEHOLDER_REGEX.findall(init_config_tpl) + PLACEHOLDER_REGEX.findall(instance_tpl)
