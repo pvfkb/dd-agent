@@ -39,7 +39,6 @@ class ConsulCheck(AgentCheck):
 
     @staticmethod
     def get_auto_config():
-        import simplejson as json
         config = {
             'init_config': {},
             'instance': {
@@ -48,7 +47,7 @@ class ConsulCheck(AgentCheck):
                 "new_leader_checks": "yes",
                 "service_whitelist": ["zookeeper", "gunicorn", "redis"]}
         }
-        return json.dumps(config)
+        return config
 
     def consul_request(self, instance, endpoint):
         url = urljoin(instance.get('url'), endpoint)

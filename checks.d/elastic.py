@@ -220,12 +220,11 @@ class ESCheck(AgentCheck):
 
     @staticmethod
     def get_auto_config():
-        import simplejson as json
         config = {
             'init_config': {},
             'instance': {"url": "http://%%host%%:%%port%%"}
         }
-        return json.dumps(config)
+        return config
 
     def get_instance_config(self, instance):
         url = instance.get('url')

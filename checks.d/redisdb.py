@@ -94,12 +94,11 @@ class Redis(AgentCheck):
 
     @staticmethod
     def get_auto_config():
-        import simplejson as json
         config = {
             'init_config': {},
             'instance': {"host": "%%host%%", "port": "%%port%%"}
         }
-        return json.dumps(config)
+        return config
 
     def get_library_versions(self):
         return {"redis": redis.__version__}

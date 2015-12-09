@@ -168,7 +168,6 @@ class DockerDaemon(AgentCheck):
         AgentCheck.__init__(self, name, init_config,
                             agentConfig, instances=instances)
 
-        self._agentConfig = agentConfig
         self.init_success = False
         self.init()
         self._service_discovery = all(
@@ -622,7 +621,7 @@ class DockerDaemon(AgentCheck):
                 should_reload_conf = True
         self._last_event_collection_ts = now
         if all(should_reload_conf, self._service_discovery):
-            self._agentConfig['reload_check_configs'] = True
+            self.agentConfig['reload_check_configs'] = True
         return events
 
     def _pre_aggregate_events(self, api_events, containers_by_id):
