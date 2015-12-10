@@ -1,7 +1,9 @@
 # std
+import logging
 from os import path
 
-import logging
+# project
+from tests.checks.common import get_check_class
 
 # 3p
 from etcd import Client as etcd_client
@@ -16,11 +18,14 @@ DEFAULT_RECO = True
 DEFAULT_TIMEOUT = 5
 SD_TEMPLATE_DIR = '/datadog/check_configs'
 
-IMAGE_AND_CHECK = [
-    ('redis', 'redisdb'),
-    ('nginx', 'nginx'),
-    ('mongo', 'mongo'),
-]
+AUTO_CONF_IMAGES = {
+    # image_name: check_name
+    'redis': 'redisdb',
+    'nginx': 'nginx',
+    'mongo': 'mongo',
+    'consul': 'consul',
+    'elasticsearch': 'elastic',
+}
 
 
 class ConfigStore:
@@ -86,6 +91,17 @@ class ConfigStoreClient:
         self.settings = self._extract_settings(config)
         self.client = self.get_client(reset=True)
 
+    def get_check_object(self, image_name):
+        for key in AUTO_CONF_IMAGES:
+            if key == image_name:
+                check_name = AUTO_CONF_IMAGES[key]
+                check = get_check_class(check_name)
+                auto_conf = check.get_auto_config()
+                init_config_tpl = auto_conf.get('init_config')
+                instance_tpl = auto_conf.get('instance')
+                return [check_name, init_config_tpl, instance_tpl]
+        return None
+
 
 class EtcdStore(ConfigStoreClient):
     """Implementation of a config store client for etcd"""
@@ -104,30 +120,28 @@ class EtcdStore(ConfigStoreClient):
             self.client = etcd_client(self.settings)
         return self.client
 
-    def get_check_tpl(self, key, **kwargs):
+    def get_check_tpl(self, image, **kwargs):
         """Retrieve template config strings from etcd."""
         try:
             # Try to read from the user-supplied config
-            check_name = self.client.read(path.join(self.sd_template_dir, key, 'check_name')).value
+            check_name = self.client.read(path.join(self.sd_template_dir, image, 'check_name')).value
             init_config_tpl = self.client.read(
-                path.join(self.sd_template_dir, key, 'init_config'),
+                path.join(self.sd_template_dir, image, 'init_config'),
                 timeout=kwargs.get('timeout', DEFAULT_TIMEOUT)).value
             instance_tpl = self.client.read(
-                path.join(self.sd_template_dir, key, 'instance'),
+                path.join(self.sd_template_dir, image, 'instance'),
                 timeout=kwargs.get('timeout', DEFAULT_TIMEOUT)).value
         except (KeyError, TimeoutError):
             # If it failed, try to read from auto-config templates
-            log.info(
-                "Could not find directory {0} in etcd configs, trying to auto-configure the check...".format(key))
-            for image, check in IMAGE_AND_CHECK:
-                if key == image:
-                    check_name = key = check
-                    break
-                
+            log.info("Could not find directory {0} in etcd configs, "
+                     "trying to auto-configure the check...".format(image))
+            auto_config = self.get_auto_config(image)
+            if auto_config is not None:
+                check_name, init_config_tpl, instance_tpl = auto_config
         except Exception:
             log.info(
                 'Fetching the value for {0} in etcd failed, '
-                'this check will not be configured by the service discovery.'.format(key))
+                'this check will not be configured by the service discovery.'.format(image))
             return None
         template = [check_name, init_config_tpl, instance_tpl]
         return template
