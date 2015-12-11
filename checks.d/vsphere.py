@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 from hashlib import md5
 from Queue import Empty, Queue
 import re
+import ssl
 import time
 import traceback
 
@@ -429,12 +430,16 @@ class VSphereCheck(AgentCheck):
             'vcenter_host:{0}'.format(instance.get('host')),
         ]
 
+        context = ssl.SSLContext(ssl.PROTOCOL_TLSv1)
+        context.verify_mode = ssl.CERT_NONE
+
         if i_key not in self.server_instances:
             try:
                 server_instance = connect.SmartConnect(
                     host=instance.get('host'),
                     user=instance.get('username'),
-                    pwd=instance.get('password')
+                    pwd=instance.get('password'),
+                    sslContext=context
                 )
             except Exception as e:
                 err_msg = "Connection to %s failed: %s" % (instance.get('host'), e)
