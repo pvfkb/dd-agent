@@ -10,8 +10,8 @@ from collections import defaultdict, Counter, deque
 # project
 from checks import AgentCheck
 from config import _is_affirmative
-from utils.dockerutil import find_cgroup, find_cgroup_filename_pattern, get_client, \
-    MountException, set_docker_settings
+from utils.dockerutil import find_cgroup, find_cgroup_filename_pattern, get_client, MountException, \
+    set_docker_settings, image_tag_extractor, container_name_extractor
 from utils.kubeutil import get_kube_labels
 from utils.platform import Platform
 
@@ -87,35 +87,6 @@ DEFAULT_IMAGE_TAGS = [
     'image_name',
     'image_tag'
 ]
-
-
-def image_tag_extractor(c, key):
-    if "Image" in c:
-        split = c["Image"].split(":", 1)
-        if len(split) <= key:
-            return None
-        else:
-            return [split[key]]
-    if "RepoTags" in c:
-        splits = [el.split(":", 1) for el in c["RepoTags"]]
-        tags = []
-        for split in splits:
-            if len(split) > key:
-                tags.append(split[key])
-        if len(tags) > 0:
-            return list(set(tags))
-    return None
-
-
-def container_name_extractor(c):
-    # we sort the list to make sure that a docker API update introducing
-    # new names with a single "/" won't make us report dups.
-    names = sorted(c.get('Names', []))
-    for name in names:
-        # the leading "/" is legit, if there's another one it means the name is actually an alias
-        if name.count('/') <= 1:
-            return [str(name).lstrip('/')]
-    return [c.get('Id')[:11]]
 
 
 TAG_EXTRACTORS = {

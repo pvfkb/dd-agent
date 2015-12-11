@@ -173,10 +173,6 @@ class Collector(object):
                 'start': time.time(),
                 'interval': int(agentConfig.get('agent_checks_interval', 10 * 60))
             },
-            'dd_check_tags': {
-                'start': time.time(),
-                'interval': int(agentConfig.get('dd_check_tags_interval', 10 * 60))
-            },
         }
         socket.setdefaulttimeout(15)
         self.run_count = 0
@@ -361,18 +357,21 @@ class Collector(object):
         if not Platform.is_windows():
             has_resource = False
             for resources_check in self._resources_checks:
-                resources_check.check()
-                snaps = resources_check.pop_snapshots()
-                if snaps:
-                    has_resource = True
-                    res_value = {
-                        'snaps': snaps,
-                        'format_version': resources_check.get_format_version()
-                    }
-                    res_format = resources_check.describe_format_if_needed()
-                    if res_format is not None:
-                        res_value['format_description'] = res_format
-                    payload['resources'][resources_check.RESOURCE_KEY] = res_value
+                try:
+                    resources_check.check()
+                    snaps = resources_check.pop_snapshots()
+                    if snaps:
+                        has_resource = True
+                        res_value = {
+                            'snaps': snaps,
+                            'format_version': resources_check.get_format_version()
+                        }
+                        res_format = resources_check.describe_format_if_needed()
+                        if res_format is not None:
+                            res_value['format_description'] = res_format
+                        payload['resources'][resources_check.RESOURCE_KEY] = res_value
+                except Exception:
+                    log.exception("Error running resource check %s" % resources_check.RESOURCE_KEY)
 
             if has_resource:
                 payload['resources']['meta'] = {
@@ -663,6 +662,17 @@ class Collector(object):
             if host_tags:
                 payload['host-tags']['system'] = host_tags
 
+            # If required by the user, let's create the dd_check:xxx host tags
+            if self.agentConfig['create_dd_check_tags']:
+                app_tags_list = [DD_CHECK_TAG.format(c.name) for c in self.initialized_checks_d]
+                app_tags_list.extend([DD_CHECK_TAG.format(cname) for cname
+                                      in JMXFiles.get_jmx_appnames()])
+
+                if 'system' not in payload['host-tags']:
+                    payload['host-tags']['system'] = []
+
+                payload['host-tags']['system'].extend(app_tags_list)
+
             GCE_tags = GCE.get_tags(self.agentConfig)
             if GCE_tags is not None:
                 payload['host-tags'][GCE.SOURCE_TYPE_NAME] = GCE_tags
@@ -716,18 +726,6 @@ class Collector(object):
                     )
             payload['agent_checks'] = agent_checks
             payload['meta'] = self.hostname_metadata_cache  # add hostname metadata
-
-        # If required by the user, let's create the dd_check:xxx host tags
-        if self.agentConfig['create_dd_check_tags'] and \
-                self._should_send_additional_data('dd_check_tags'):
-            app_tags_list = [DD_CHECK_TAG.format(c.name) for c in self.initialized_checks_d]
-            app_tags_list.extend([DD_CHECK_TAG.format(cname) for cname
-                                  in JMXFiles.get_jmx_appnames()])
-
-            if 'system' not in payload['host-tags']:
-                payload['host-tags']['system'] = []
-
-            payload['host-tags']['system'].extend(app_tags_list)
 
     def _get_hostname_metadata(self):
         """
