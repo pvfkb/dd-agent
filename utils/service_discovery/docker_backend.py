@@ -14,7 +14,7 @@ class SDDockerBackend(SDGenericBackend):
     """Docker-based service discovery"""
 
     def __init__(self, agentConfig):
-        self.docker_client = get_docker_client()  # TODO: use user-supplied configuration
+        self.docker_client = get_docker_client()
         self.VAR_MAPPING = {
             'host': self._get_host,
             'port': self._get_port,

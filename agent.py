@@ -48,7 +48,6 @@ from utils.profile import AgentProfiler
 PID_NAME = "dd-agent"
 WATCHDOG_MULTIPLIER = 10
 RESTART_INTERVAL = 4 * 24 * 60 * 60  # Defaults to 4 days
-SERVICE_DISCOVERY_INTERVAL = 30  # defaults to 30 seconds
 START_COMMANDS = ['start', 'restart', 'foreground']
 DD_AGENT_COMMANDS = ['check', 'flare', 'jmx']
 

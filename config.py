@@ -805,9 +805,10 @@ def load_check_directory(agentConfig, hostname):
                   "the Agent is currently deployed.\n" % e.args[0])
         sys.exit(3)
 
-    if agentConfig.get('service_discovery'):
-        from utils.service_discovery.docker_discovery import get_configs
-        service_disco_configs = get_configs(agentConfig)
+    if agentConfig.get('service_discovery') and agentConfig.get('service_discovery_backend') in SD_BACKENDS:
+            from utils.service_discovery.generic_backend import ServiceDiscoveryBackend
+            sd_backend = ServiceDiscoveryBackend(agentConfig.get('service_discovery_backend'))
+            service_disco_configs = sd_backend.get_configs(agentConfig)
     else:
         service_disco_configs = {}
 
@@ -816,7 +817,7 @@ def load_check_directory(agentConfig, hostname):
     # If there is a matching configuration file in the conf.d directory
     # then we import the check
     for check in itertools.chain(*checks_paths):
-        docker_init_config, docker_instances, skip_config_lookup = None, None, False
+        sd_init_config, sd_instances, skip_config_lookup = None, None, False
         check_name = os.path.basename(check).split('.')[0]
         check_config = None
         if check_name in initialized_checks or check_name in init_failed_checks:
@@ -840,8 +841,8 @@ def load_check_directory(agentConfig, hostname):
                               "Skipping check".format(default_conf_path))
                     continue
                 else:
-                    docker_init_config, docker_instances = service_disco_configs[check_name]
-                    check_config = {'init_config': docker_init_config, 'instances': docker_instances}
+                    sd_init_config, sd_instances = service_disco_configs[check_name]
+                    check_config = {'init_config': sd_init_config, 'instances': sd_instances}
                     skip_config_lookup = True
 
             conf_path = default_conf_path
