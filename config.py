@@ -407,12 +407,12 @@ def get_config(parse_args=True, cfg_path=None, options=None):
                 log.error("The backend {0} is not supported. "
                           "Service discovery won't be enabled.".format(backend))
                 agentConfig['service_discovery'] = False
-            if conf_backend in SD_CONFIG_BACKENDS:
+            if conf_backend not in SD_CONFIG_BACKENDS:
                 log.error("The config backend {0} is not supported. "
                           "Service discovery won't be enabled.".format(conf_backend))
                 agentConfig['service_discovery'] = False
-            additional_config = ConfigStore(backend, config).extract_sd_config(config)
-            for name, value in additional_config:
+            additional_config = ConfigStore.extract_sd_config(config)
+            for name, value in additional_config.iteritems():
                 agentConfig[name] = value
 
         # Concerns only Windows
@@ -806,9 +806,9 @@ def load_check_directory(agentConfig, hostname):
         sys.exit(3)
 
     if agentConfig.get('service_discovery') and agentConfig.get('service_discovery_backend') in SD_BACKENDS:
-            from utils.service_discovery.generic_backend import ServiceDiscoveryBackend
-            sd_backend = ServiceDiscoveryBackend(agentConfig.get('service_discovery_backend'))
-            service_disco_configs = sd_backend.get_configs(agentConfig)
+        from utils.service_discovery.sd_backend import ServiceDiscoveryBackend
+        sd_backend = ServiceDiscoveryBackend(agentConfig=agentConfig)
+        service_disco_configs = sd_backend.get_configs()
     else:
         service_disco_configs = {}
 

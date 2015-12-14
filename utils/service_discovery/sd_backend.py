@@ -1,16 +1,55 @@
 # std
 import logging
+import re
 import simplejson as json
 
 # project
 from utils.config_stores import ConfigStore
 from utils.dockerutil import get_client as get_docker_client
-from utils.service_discovery.generic_backend import SDGenericBackend
 
 log = logging.getLogger(__name__)
 
 
-class SDDockerBackend(SDGenericBackend):
+class ServiceDiscoveryBackend(object):
+    """Singleton for service discovery backends"""
+    _instance = None
+
+    def __new__(cls, *args, **kwargs):
+        if cls._instance is None:
+            agentConfig = kwargs.get('agentConfig', {})
+            if agentConfig.get('service_discovery_backend') == 'docker':
+                cls._instance = object.__new__(SDDockerBackend, agentConfig)
+            else:
+                log.error("Service discovery backend not supported. This feature won't be enabled")
+                return
+        return cls._instance
+
+    def __init__(self, agentConfig=None):
+        self.PLACEHOLDER_REGEX = re.compile(r'%%.+?%%')
+        self.agentConfig = agentConfig
+
+    def get_configs(self):
+        """Get the config for all docker containers running on the host."""
+        raise NotImplementedError()
+
+    def _render_template(self, init_config_tpl, instance_tpl, variables):
+        """Replace placeholders in a template with the proper values.
+           Return a list made of `init_config` and `instances`."""
+        config = [init_config_tpl, instance_tpl]
+        for tpl in config:
+            for key in tpl:
+                for var in self.PLACEHOLDER_REGEX.findall(str(tpl[key])):
+                    if var.strip('%') in variables and variables[var.strip('%')]:
+                        tpl[key] = tpl[key].replace(var, variables[var.strip('%')])
+                    else:
+                        log.warning('Failed to find a value for the {0} parameter.'
+                                    ' The check might not be configured properly.'.format(key))
+                        tpl[key].replace(var, '')
+        config[1] = config[1]
+        return config
+
+
+class SDDockerBackend(ServiceDiscoveryBackend):
     """Docker-based service discovery"""
 
     def __init__(self, agentConfig):
@@ -19,7 +58,7 @@ class SDDockerBackend(SDGenericBackend):
             'host': self._get_host,
             'port': self._get_port,
         }
-        SDGenericBackend.__init__(agentConfig)
+        ServiceDiscoveryBackend.__init__(self, agentConfig)
 
     def _get_host(self, container_inspect):
         """Extract the host IP from a docker inspect object."""
@@ -65,7 +104,7 @@ class SDDockerBackend(SDGenericBackend):
     def _get_check_config(self, c_id, image):
         """Retrieve a configuration template and fill it with data pulled from docker."""
         inspect = self.docker_client.inspect_container(c_id)
-        template_config = self._get_template_config(self.agentConfig, image)
+        template_config = self._get_template_config(image)
         if template_config is None:
             return None
         check_name, init_config_tpl, instance_tpl, variables = template_config
@@ -81,12 +120,12 @@ class SDDockerBackend(SDGenericBackend):
     def _get_template_config(self, image_name):
         """Extract a template config from a K/V store and returns it as a dict object."""
         config_backend = self.agentConfig.get('sd_config_backend')
-        tpl = ConfigStore(config_backend).get_check_tpl(image_name)
+        tpl = ConfigStore(agentConfig=self.agentConfig).get_check_tpl(image_name)
+
         if tpl is not None and len(tpl) == 3 and all(tpl):
             check_name, init_config_tpl, instance_tpl = tpl
         else:
             return None
-
         try:
             # build a list of all variables to replace in the template
             variables = self.PLACEHOLDER_REGEX.findall(init_config_tpl) + \

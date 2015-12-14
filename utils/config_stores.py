@@ -1,11 +1,10 @@
 # std
 import logging
+import simplejson as json
 from os import path
 
-# project
-from tests.checks.common import get_check_class
-
 # 3p
+from etcd import EtcdKeyNotFound
 from etcd import Client as etcd_client
 from urllib3.exceptions import TimeoutError
 
@@ -28,24 +27,44 @@ AUTO_CONF_IMAGES = {
 }
 
 
-class ConfigStore:
+class ConfigStore(object):
     """Singleton for config stores"""
     _instance = None
 
-    def __init__(self, store=None, config=None):
-        if self._instance is None:
-            if store == 'etcd':
-                self._instance = EtcdStore(config)
-            elif store == 'consul':
-                self._instance = ConsulStore(config)
-        else:
-            return self._instance
+    def __new__(cls, *args, **kwargs):
+        if cls._instance is None:
+            agentConfig = kwargs.get('agentConfig', {})
+            if agentConfig.get('sd_config_backend') == 'etcd':
+                cls._instance = object.__new__(EtcdStore, agentConfig)
+            elif agentConfig.get('sd_config_backend') == 'consul':
+                cls._instance = object.__new__(ConsulStore, agentConfig)
+        return cls._instance
 
-    def __get_attr__(self, name):
-        return getattr(self._instance, name)
+    def _extract_settings(self, config):
+        raise NotImplementedError()
 
-    def __set_attr__(self, name, value):
-        return setattr(self._instance, name, value)
+    def get_client(self, reset=False):
+        raise NotImplementedError()
+
+    def get_check_tpl(self, key, **kwargs):
+        raise NotImplementedError()
+
+    def set_client_config(self, config):
+        self.settings = self._extract_settings(config)
+        self.client = self.get_client(reset=True)
+
+    def _get_auto_config(self, image_name):
+        from tests.checks.common import get_check_class
+        for key in AUTO_CONF_IMAGES:
+            if key == image_name:
+                check_name = AUTO_CONF_IMAGES[key]
+                check = get_check_class(check_name)
+                auto_conf = check.get_auto_config()
+                # stringify the dict to be consistent with what comes from the config stores
+                init_config_tpl = json.dumps(auto_conf.get('init_config'))
+                instance_tpl = json.dumps(auto_conf.get('instance'))
+                return [check_name, init_config_tpl, instance_tpl]
+        return None
 
     @staticmethod
     def extract_sd_config(config):
@@ -69,55 +88,32 @@ class ConfigStore:
         return sd_config
 
 
-class ConfigStoreClient:
-    """Mother class for the configuration store clients"""
-
-    def __init__(self, config):
-        self.client = None
-        self.settings = self._extract_settings(config)
-        self.client = self.get_client()
-        self.sd_template_dir = config.get('sd_template_dir')
-
-    def extract_settings(self, config):
-        raise NotImplementedError()
-
-    def get_client(self, reset=False):
-        raise NotImplementedError()
-
-    def get_check_tpl(self, key, **kwargs):
-        raise NotImplementedError()
-
-    def set_client_config(self, config):
-        self.settings = self._extract_settings(config)
-        self.client = self.get_client(reset=True)
-
-    def get_check_object(self, image_name):
-        for key in AUTO_CONF_IMAGES:
-            if key == image_name:
-                check_name = AUTO_CONF_IMAGES[key]
-                check = get_check_class(check_name)
-                auto_conf = check.get_auto_config()
-                init_config_tpl = auto_conf.get('init_config')
-                instance_tpl = auto_conf.get('instance')
-                return [check_name, init_config_tpl, instance_tpl]
-        return None
-
-
-class EtcdStore(ConfigStoreClient):
+class EtcdStore(ConfigStore):
     """Implementation of a config store client for etcd"""
+    def __init__(self, agentConfig):
+        self.client = None
+        self.settings = self._extract_settings(agentConfig)
+        self.client = self.get_client()
+        self.sd_template_dir = agentConfig.get('sd_template_dir')
 
-    def extract_settings(self, config):
+    def _extract_settings(self, config):
         """Extract settings from a config object"""
-        self.settings = {
-            'host': config.get('host', DEFAULT_ETCD_HOST),
-            'port': int(config.get('port', DEFAULT_ETCD_PORT)),
+        settings = {
+            'host': config.get('sd_backend_host', DEFAULT_ETCD_HOST),
+            'port': int(config.get('sd_backend_port', DEFAULT_ETCD_PORT)),
             'allow_reconnect': config.get('allow_reconnect', DEFAULT_RECO),
             'protocol': config.get('protocol', DEFAULT_ETCD_PROTOCOL),
         }
+        return settings
 
     def get_client(self, reset=False):
         if self.client is None or reset is True:
-            self.client = etcd_client(self.settings)
+            self.client = etcd_client(
+                host=self.settings.get('host'),
+                port=self.settings.get('port'),
+                allow_reconnect=self.settings.get('allow_reconnect'),
+                protocol=self.settings.get('protocol'),
+            )
         return self.client
 
     def get_check_tpl(self, image, **kwargs):
@@ -131,11 +127,11 @@ class EtcdStore(ConfigStoreClient):
             instance_tpl = self.client.read(
                 path.join(self.sd_template_dir, image, 'instance'),
                 timeout=kwargs.get('timeout', DEFAULT_TIMEOUT)).value
-        except (KeyError, TimeoutError):
+        except (EtcdKeyNotFound, TimeoutError):
             # If it failed, try to read from auto-config templates
             log.info("Could not find directory {0} in etcd configs, "
                      "trying to auto-configure the check...".format(image))
-            auto_config = self.get_auto_config(image)
+            auto_config = self._get_auto_config(image)
             if auto_config is not None:
                 check_name, init_config_tpl, instance_tpl = auto_config
         except Exception:
@@ -147,5 +143,5 @@ class EtcdStore(ConfigStoreClient):
         return template
 
 
-class ConsulStore(ConfigStoreClient):
+class ConsulStore(ConfigStore):
     """Implementation of a config store client for consul"""

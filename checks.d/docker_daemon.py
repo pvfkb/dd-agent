@@ -141,10 +141,10 @@ class DockerDaemon(AgentCheck):
 
         self.init_success = False
         self.init()
-        self._service_discovery = all(
+        self._service_discovery = all([
             agentConfig.get('service_discovery'),
             agentConfig.get('service_discovery_backend' == 'docker')
-        )
+        ])
 
     def is_k8s(self):
         return self.is_check_enabled("kubernetes")
@@ -591,7 +591,7 @@ class DockerDaemon(AgentCheck):
             if event.get('status') in CONFIG_RELOAD_STATUS:
                 should_reload_conf = True
         self._last_event_collection_ts = now
-        if all(should_reload_conf, self._service_discovery):
+        if all([should_reload_conf, self._service_discovery]):
             self.agentConfig['reload_check_configs'] = True
         return events
 
