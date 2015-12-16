@@ -1,4 +1,8 @@
 # std
+import glob
+import imp
+import inspect
+import itertools
 import logging
 import simplejson as json
 from os import path
@@ -8,6 +12,7 @@ from consul import Consul
 from etcd import EtcdKeyNotFound
 from etcd import Client as etcd_client
 from urllib3.exceptions import TimeoutError
+
 
 log = logging.getLogger(__name__)
 
@@ -27,12 +32,12 @@ DEFAULT_CONSUL_DATACENTER = None
 DEFAULT_CONSUL_VERIFY = True
 
 AUTO_CONF_IMAGES = {
-    # image_name: check_name
-    'redis': 'redisdb',
-    'nginx': 'nginx',
-    'mongo': 'mongo',
-    'consul': 'consul',
-    'elasticsearch': 'elastic',
+    # image_name: [check_name, class_name]
+    'redis': ['redisdb', 'Redis'],
+    'nginx': ['nginx', 'Nginx'],
+    'mongo': ['mongo', 'MongoDb'],
+    'consul': ['consul', 'ConsulCheck'],
+    'elasticsearch': ['elastic', 'ESCheck'],
 }
 
 
@@ -53,6 +58,13 @@ class ConfigStore(object):
                 cls._instance = object.__new__(ConsulStore, agentConfig)
         return cls._instance
 
+    def __init__(self, agentConfig):
+        self.client = None
+        self.agentConfig = agentConfig
+        self.settings = self._extract_settings(agentConfig)
+        self.client = self.get_client()
+        self.sd_template_dir = agentConfig.get('sd_template_dir')
+
     def _extract_settings(self, config):
         raise NotImplementedError()
 
@@ -63,11 +75,14 @@ class ConfigStore(object):
         raise NotImplementedError()
 
     def _get_auto_config(self, image_name):
-        from tests.checks.common import get_check_class
         for key in AUTO_CONF_IMAGES:
             if key == image_name:
-                check_name = AUTO_CONF_IMAGES[key]
-                check = get_check_class(check_name)
+                check_name, class_name = AUTO_CONF_IMAGES[key]
+                check = self.get_check_class(check_name, class_name)
+                if check is None:
+                    log.info("Could not find an auto configuration template for %s."
+                             " Leaving it unconfigured." % image_name)
+                    return None
                 auto_conf = check.get_auto_config()
                 # stringify the dict to be consistent with what comes from the config stores
                 init_config_tpl = json.dumps(auto_conf.get('init_config'))
@@ -75,13 +90,34 @@ class ConfigStore(object):
                 return [check_name, init_config_tpl, instance_tpl]
         return None
 
+    def get_check_class(self, check_name, class_name):
+        """Return the class object of a check"""
+        from config import get_checksd_path, get_os, PathNotFound
+
+        osname = get_os()
+        checks_paths = [glob.glob(path.join(self.agentConfig['additional_checksd'], '*.py'))]
+        try:
+            checksd_path = get_checksd_path(osname)
+            checks_paths.append(glob.glob(path.join(checksd_path, '*.py')))
+        except PathNotFound, e:
+            log.error(e.args[0])
+            return None
+        for check in itertools.chain(*checks_paths):
+            py_check_name = path.basename(check).split('.')[0]
+            if py_check_name == check_name:
+                check_module = imp.load_source('checksd_%s' % check_name, check)
+                classes = inspect.getmembers(check_module, inspect.isclass)
+                for cls_name, clsmember in classes:
+                    if cls_name == class_name:
+                        return clsmember
+
     def get_check_tpl(self, image, **kwargs):
         """Retrieve template config strings from the ConfigStore."""
         try:
             # Try to read from the user-supplied config
             check_name = self.client_read(path.join(self.sd_template_dir, image, 'check_name'))
             init_config_tpl = self.client_read(path.join(self.sd_template_dir, image, 'init_config'))
-            instance_tpl = self.client.read(path.join(self.sd_template_dir, image, 'instance'))
+            instance_tpl = self.client_read(path.join(self.sd_template_dir, image, 'instance'))
         except (KeyNotFound, TimeoutError):
             # If it failed, try to read from auto-config templates
             log.info("Could not find directory {0} in the config store, "
@@ -89,6 +125,8 @@ class ConfigStore(object):
             auto_config = self._get_auto_config(image)
             if auto_config is not None:
                 check_name, init_config_tpl, instance_tpl = auto_config
+            else:
+                return None
         except Exception:
             log.info(
                 'Fetching the value for {0} in etcd failed, '
@@ -121,12 +159,6 @@ class ConfigStore(object):
 
 class EtcdStore(ConfigStore):
     """Implementation of a config store client for etcd"""
-    def __init__(self, agentConfig):
-        self.client = None
-        self.settings = self._extract_settings(agentConfig)
-        self.client = self.get_client()
-        self.sd_template_dir = agentConfig.get('sd_template_dir')
-
     def _extract_settings(self, config):
         """Extract settings from a config object"""
         settings = {
@@ -160,12 +192,6 @@ class EtcdStore(ConfigStore):
 
 class ConsulStore(ConfigStore):
     """Implementation of a config store client for consul"""
-    def __init__(self, agentConfig):
-        self.client = None
-        self.settings = self._extract_settings(agentConfig)
-        self.client = self.get_client()
-        self.sd_template_dir = agentConfig.get('sd_template_dir')
-
     def _extract_settings(self, config):
         """Extract settings from a config object"""
         settings = {
