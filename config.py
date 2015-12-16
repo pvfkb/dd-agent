@@ -36,7 +36,7 @@ MAC_CONFIG_PATH = '/opt/datadog-agent/etc'
 DEFAULT_CHECK_FREQUENCY = 15   # seconds
 LOGGING_MAX_BYTES = 5 * 1024 * 1024
 SD_BACKENDS = ['docker']
-SD_CONFIG_BACKENDS = ['etcd']
+SD_CONFIG_BACKENDS = ['etcd', 'consul']
 
 log = logging.getLogger(__name__)
 

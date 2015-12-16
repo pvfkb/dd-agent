@@ -35,7 +35,6 @@ AUTO_CONF_IMAGES = {
     # image_name: [check_name, class_name]
     'redis': ['redisdb', 'Redis'],
     'nginx': ['nginx', 'Nginx'],
-    'mongo': ['mongo', 'MongoDb'],
     'consul': ['consul', 'ConsulCheck'],
     'elasticsearch': ['elastic', 'ESCheck'],
 }
@@ -115,9 +114,9 @@ class ConfigStore(object):
         """Retrieve template config strings from the ConfigStore."""
         try:
             # Try to read from the user-supplied config
-            check_name = self.client_read(path.join(self.sd_template_dir, image, 'check_name'))
-            init_config_tpl = self.client_read(path.join(self.sd_template_dir, image, 'init_config'))
-            instance_tpl = self.client_read(path.join(self.sd_template_dir, image, 'instance'))
+            check_name = self.client_read(path.join(self.sd_template_dir, image, 'check_name').lstrip('/'))
+            init_config_tpl = self.client_read(path.join(self.sd_template_dir, image, 'init_config').lstrip('/'))
+            instance_tpl = self.client_read(path.join(self.sd_template_dir, image, 'instance').lstrip('/'))
         except (KeyNotFound, TimeoutError):
             # If it failed, try to read from auto-config templates
             log.info("Could not find directory {0} in the config store, "
@@ -129,7 +128,7 @@ class ConfigStore(object):
                 return None
         except Exception:
             log.info(
-                'Fetching the value for {0} in etcd failed, '
+                'Fetching the value for {0} in the config store failed, '
                 'this check will not be configured by the service discovery.'.format(image))
             return None
         template = [check_name, init_config_tpl, instance_tpl]
@@ -224,4 +223,4 @@ class ConsulStore(ConfigStore):
         if res is not None:
             return res.get('Value')
         else:
-            raise KeyNotFound("The key %s was not found in etcd" % path)
+            raise KeyNotFound("The key %s was not found in consul" % path)
