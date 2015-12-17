@@ -142,9 +142,9 @@ class ConfigStore(object):
             sd_config['sd_config_backend'] = config.get('Main', 'sd_config_backend')
         else:
             sd_config['sd_config_backend'] = 'etcd'
-        if config.has_option('Main', 'backend_template_dir'):
+        if config.has_option('Main', 'sd_template_dir'):
             sd_config['sd_template_dir'] = config.get(
-                'Main', 'backend_template_dir')
+                'Main', 'sd_template_dir')
         else:
             sd_config['sd_template_dir'] = SD_TEMPLATE_DIR
         if config.has_option('Main', 'sd_backend_host'):
