@@ -150,8 +150,10 @@ class SDDockerBackend(ServiceDiscoveryBackend):
     def _get_config_space(self, container_conf):
         """Check whether the user config was provided through env variables or container labels.
            Return this config after removing its `datadog_` prefix."""
-        env_variables = {v.split("=")[0].split("datadog_")[1]: v.split("=")[1] for v in container_conf['Env'] if v.split("=")[0].startswith("datadog_")}
-        labels = {k.split('datadog_')[1]: v for k, v in container_conf['Labels'].iteritems() if k.startswith("datadog_")}
+        env_variables = {v.split("=")[0].split("datadog_")[1]: v.split("=")[1]
+                         for v in container_conf['Env'] if v.split("=")[0].startswith("datadog_")}
+        labels = {k.split('datadog_')[1]: v
+                  for k, v in container_conf['Labels'].iteritems() if k.startswith("datadog_")}
 
         if "check_name" in env_variables:
             return env_variables

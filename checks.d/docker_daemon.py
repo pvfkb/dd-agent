@@ -23,7 +23,7 @@ MAX_CGROUP_LISTING_RETRIES = 3
 CONTAINER_ID_RE = re.compile('[0-9a-f]{64}')
 POD_NAME_LABEL = "io.kubernetes.pod.name"
 
-CONFIG_RELOAD_STATUS = ['start', 'die']  # used to trigger service discovery
+CONFIG_RELOAD_STATUS = ['start', 'die', 'stop', 'kill']  # used to trigger service discovery
 
 GAUGE = AgentCheck.gauge
 RATE = AgentCheck.rate
@@ -143,7 +143,7 @@ class DockerDaemon(AgentCheck):
         self.init()
         self._service_discovery = all([
             agentConfig.get('service_discovery'),
-            agentConfig.get('service_discovery_backend' == 'docker')
+            agentConfig.get('service_discovery_backend') == 'docker'
         ])
 
     def is_k8s(self):
