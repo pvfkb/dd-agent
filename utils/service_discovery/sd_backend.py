@@ -62,7 +62,6 @@ class SDDockerBackend(ServiceDiscoveryBackend):
 
     def _get_host(self, container_inspect):
         """Extract the host IP from a docker inspect object."""
-        global docker_client
         ip_addr = container_inspect['NetworkSettings']['IPAddress']
         if not ip_addr:
             # kubernetes case
@@ -73,12 +72,12 @@ class SDDockerBackend(ServiceDiscoveryBackend):
 
     def _get_port(self, container_inspect):
         """Extract the port from a docker inspect object."""
-        port = None
         try:
             port = container_inspect['NetworkSettings']['Ports'].keys()[0].split("/")[0]
-        except (IndexError, KeyError):
+        except (IndexError, KeyError, AttributeError):
             # kubernetes case
-            port = container_inspect['Config']['ExposedPorts'].keys()[0].split("/")[0]
+            ports = container_inspect['Config'].get('ExposedPorts', {})
+            port = ports.keys()[0].split("/")[0] if ports else None
         return port
 
     def get_configs(self):
