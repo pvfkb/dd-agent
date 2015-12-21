@@ -1,11 +1,13 @@
 # std
 import logging
 import re
+import requests
 import simplejson as json
 
 # project
 from utils.config_stores import ConfigStore
 from utils.dockerutil import get_client as get_docker_client
+from utils.kubeutil import _get_default_router, DEFAULT_KUBELET_PORT
 
 log = logging.getLogger(__name__)
 
@@ -13,6 +15,7 @@ log = logging.getLogger(__name__)
 class ServiceDiscoveryBackend(object):
     """Singleton for service discovery backends"""
     _instance = None
+    PLACEHOLDER_REGEX = re.compile(r'%%.+?%%')
 
     def __new__(cls, *args, **kwargs):
         if cls._instance is None:
@@ -25,7 +28,6 @@ class ServiceDiscoveryBackend(object):
         return cls._instance
 
     def __init__(self, agentConfig=None):
-        self.PLACEHOLDER_REGEX = re.compile(r'%%.+?%%')
         self.agentConfig = agentConfig
 
     def get_configs(self):
@@ -61,13 +63,24 @@ class SDDockerBackend(ServiceDiscoveryBackend):
         ServiceDiscoveryBackend.__init__(self, agentConfig)
 
     def _get_host(self, container_inspect):
-        """Extract the host IP from a docker inspect object."""
-        ip_addr = container_inspect['NetworkSettings']['IPAddress']
+        """Extract the host IP from a docker inspect object, or the kubelet API."""
+        ip_addr = container_inspect.get('NetworkSettings', {}).get('IPAddress')
         if not ip_addr:
             # kubernetes case
+            host_ip = _get_default_router()
+            # query the pod list for this node from kubelet
+            pod_list = requests.get('http://%s:%s/pods' % (host_ip, DEFAULT_KUBELET_PORT)).json()
             c_id = container_inspect.get('Id')
-            task_id = self.docker_client.exec_create(c_id, 'hostname -I').get('Id')
-            ip_addr = self.docker_client.exec_start(task_id).strip()
+            for pod in pod_list.get('items', []):
+                pod_ip = pod.get('status', {}).get('podIP')
+                if pod_ip is None:
+                    continue
+                else:
+                    c_statuses = pod.get('status', {}).get('containerStatuses', [])
+                    for status in c_statuses:
+                        # compare the container id with those of containers in the current pod
+                        if c_id == status.get('containerID', '').split('//')[1]:
+                            ip_addr = pod_ip
         return ip_addr
 
     def _get_port(self, container_inspect):

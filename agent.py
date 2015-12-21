@@ -180,8 +180,14 @@ class Agent(Daemon):
             self.collector.run(checksd=self._checksd,
                                start_event=self.start_event,
                                configs_reloaded=self.configs_reloaded)
-            if self.configs_reloaded:
-                self.configs_reloaded = False
+
+            self.configs_reloaded = False
+            # Check if we should run service discovery (this flag is set in the docker_daemon check).
+            if self._agentConfig.get('reload_check_configs'):
+                self.reload_configs()
+                self.configs_reloaded = True
+                self._agentConfig['reload_check_configs'] = False
+
             if profiled:
                 if collector_profiled_runs >= self.collector_profile_interval:
                     try:
@@ -194,12 +200,6 @@ class Agent(Daemon):
             # Check if we should restart.
             if self.autorestart and self._should_restart():
                 self._do_restart()
-
-            # Check if we should run service discovery (this flag is set in the docker_daemon check).
-            if self._agentConfig.get('reload_check_configs') and self.configs_reloaded is False:
-                self.reload_configs()
-                self.configs_reloaded = True
-                self._agentConfig['reload_check_configs'] = False
 
             # Only plan for next loop if we will continue, otherwise exit quickly.
             if self.run_forever:

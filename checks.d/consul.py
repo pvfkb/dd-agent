@@ -46,7 +46,7 @@ class ConsulCheck(AgentCheck):
                 "url": "http://%%host%%:%%port%%",
                 "catalog_checks": "yes",
                 "new_leader_checks": "yes",
-                "service_whitelist": ["zookeeper", "gunicorn", "redis"]}
+                "service_whitelist": []}
         }
         return config
 

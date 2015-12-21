@@ -398,20 +398,26 @@ def get_config(parse_args=True, cfg_path=None, options=None):
         # Service discovery
         if config.has_option('Main', 'service_discovery_backend') and \
                 config.has_option('Main', 'sd_config_backend'):
+
             backend = config.get('Main', 'service_discovery_backend')
             conf_backend = config.get('Main', 'sd_config_backend')
             agentConfig['service_discovery'] = True
+
             # This flag is used to tell the agent it needs to run reload_configs
             agentConfig['reload_check_configs'] = False
+
             if backend not in SD_BACKENDS:
                 log.error("The backend {0} is not supported. "
                           "Service discovery won't be enabled.".format(backend))
                 agentConfig['service_discovery'] = False
+
             if conf_backend not in SD_CONFIG_BACKENDS:
                 log.error("The config backend {0} is not supported. "
                           "Service discovery won't be enabled.".format(conf_backend))
                 agentConfig['service_discovery'] = False
+
             additional_config = ConfigStore.extract_sd_config(config)
+
             for name, value in additional_config.iteritems():
                 agentConfig[name] = value
 
