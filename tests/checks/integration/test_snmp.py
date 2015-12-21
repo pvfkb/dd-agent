@@ -194,8 +194,6 @@ class SNMPTestCase(AgentCheckTest):
         self.run_check(config)
         self.service_checks = self.wait_for_async('get_service_checks', 'service_checks', 1)
 
-        self.coverage_report()
-
         # Test metrics
         for metric in self.SUPPORTED_METRIC_TYPES:
             metric_name = "snmp." + metric['name']
