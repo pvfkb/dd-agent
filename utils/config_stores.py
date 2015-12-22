@@ -77,7 +77,7 @@ class ConfigStore(object):
         for key in AUTO_CONF_IMAGES:
             if key == image_name:
                 check_name, class_name = AUTO_CONF_IMAGES[key]
-                check = self.get_check_class(check_name, class_name)
+                check = self._get_check_class(check_name, class_name)
                 if check is None:
                     log.info("Could not find an auto configuration template for %s."
                              " Leaving it unconfigured." % image_name)
@@ -89,26 +89,21 @@ class ConfigStore(object):
                 return [check_name, init_config_tpl, instance_tpl]
         return None
 
-    def get_check_class(self, check_name, class_name):
+    def _get_check_class(self, check_name, class_name):
         """Return the class object of a check"""
-        from config import get_checksd_path, get_os, PathNotFound
+        from config import get_os, get_checks_paths, get_check_class
 
         osname = get_os()
-        checks_paths = [glob.glob(path.join(self.agentConfig['additional_checksd'], '*.py'))]
-        try:
-            checksd_path = get_checksd_path(osname)
-            checks_paths.append(glob.glob(path.join(checksd_path, '*.py')))
-        except PathNotFound, e:
-            log.error(e.args[0])
-            return None
+        checks_paths = get_checks_paths(self.agentConfig, osname)
         for check in itertools.chain(*checks_paths):
             py_check_name = path.basename(check).split('.')[0]
             if py_check_name == check_name:
-                check_module = imp.load_source('checksd_%s' % check_name, check)
-                classes = inspect.getmembers(check_module, inspect.isclass)
-                for cls_name, clsmember in classes:
-                    if cls_name == class_name:
-                        return clsmember
+                check_class = get_check_class(check_name, check)
+                if isinstance(check_class, dict) or check_class is None:
+                    log.warning('Failed to load the check class for %s.' % check_name)
+                    return None
+                else:
+                    return check_class
 
     def get_check_tpl(self, image, **kwargs):
         """Retrieve template config strings from the ConfigStore."""

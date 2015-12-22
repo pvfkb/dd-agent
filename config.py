@@ -776,12 +776,51 @@ def check_yaml(conf_path):
         f.close()
 
 
+def get_checks_paths(agentConfig, osname):
+    '''Return the checks paths.'''
+    checks_paths = [glob.glob(os.path.join(agentConfig['additional_checksd'], '*.py'))]
+    try:
+        checksd_path = get_checksd_path(osname)
+        checks_paths.append(glob.glob(os.path.join(checksd_path, '*.py')))
+    except PathNotFound, e:
+        log.error(e.args[0])
+        return None
+    return checks_paths
+
+
+def get_check_class(check_name, check, init_failed_checks={}):
+    '''Return the corresponding check class for a check name if available.'''
+    from checks import AgentCheck
+    check_class = None
+    try:
+        check_module = imp.load_source('checksd_%s' % check_name, check)
+    except Exception, e:
+        traceback_message = traceback.format_exc()
+        # There is a configuration file for that check but the module can't be imported
+        log.exception('Unable to import check module %s.py from checks.d' % check_name)
+        return {'error': e, 'traceback': traceback_message}
+
+    # We make sure that there is an AgentCheck class defined
+    check_class = None
+    classes = inspect.getmembers(check_module, inspect.isclass)
+    for _, clsmember in classes:
+        if clsmember == AgentCheck:
+            continue
+        if issubclass(clsmember, AgentCheck):
+            check_class = clsmember
+            if AgentCheck in clsmember.__bases__:
+                continue
+            else:
+                break
+    return check_class
+
+
 def load_check_directory(agentConfig, hostname):
     ''' Return the initialized checks from checks.d, and a mapping of checks that failed to
     initialize. Only checks that have a configuration
     file in conf.d will be returned. '''
 
-    from checks import AgentCheck, AGENT_METRICS_CHECK_NAME
+    from checks import AGENT_METRICS_CHECK_NAME
 
     initialized_checks = {}
     init_failed_checks = {}
@@ -795,13 +834,8 @@ def load_check_directory(agentConfig, hostname):
         log.error(msg)
 
     osname = get_os()
-    checks_paths = [glob.glob(os.path.join(agentConfig['additional_checksd'], '*.py'))]
-
-    try:
-        checksd_path = get_checksd_path(osname)
-        checks_paths.append(glob.glob(os.path.join(checksd_path, '*.py')))
-    except PathNotFound, e:
-        log.error(e.args[0])
+    checks_paths = get_checks_paths(agentConfig, osname)
+    if checks_paths is None:
         sys.exit(3)
 
     try:
@@ -881,31 +915,15 @@ def load_check_directory(agentConfig, hostname):
 
         # If we are here, there is a valid matching configuration file.
         # Let's try to import the check
-        try:
-            check_module = imp.load_source('checksd_%s' % check_name, check)
-        except Exception, e:
-            traceback_message = traceback.format_exc()
-            # There is a configuration file for that check but the module can't be imported
-            init_failed_checks[check_name] = {'error': e, 'traceback': traceback_message}
-            log.exception('Unable to import check module %s.py from checks.d' % check_name)
-            continue
-
-        # We make sure that there is an AgentCheck class defined
-        check_class = None
-        classes = inspect.getmembers(check_module, inspect.isclass)
-        for _, clsmember in classes:
-            if clsmember == AgentCheck:
-                continue
-            if issubclass(clsmember, AgentCheck):
-                check_class = clsmember
-                if AgentCheck in clsmember.__bases__:
-                    continue
-                else:
-                    break
-
+        check_class = get_check_class(check_name, check, init_failed_checks)
         if not check_class:
             log.error('No check class (inheriting from AgentCheck) found in %s.py' % check_name)
             continue
+        # this means we are actually looking at a load failure
+        elif isinstance(check_class, dict):
+            init_failed_checks[check_name] = check_class
+        else:
+            pass
 
         # Look for the per-check config, which *must* exist
         if not check_config.get('instances'):
