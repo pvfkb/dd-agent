@@ -132,7 +132,9 @@ class SDDockerBackend(ServiceDiscoveryBackend):
     def _get_template_config(self, image_name):
         """Extract a template config from a K/V store and returns it as a dict object."""
         config_backend = self.agentConfig.get('sd_config_backend')
-        tpl = ConfigStore(agentConfig=self.agentConfig).get_check_tpl(image_name)
+        auto_conf = True if config_backend is None else False
+
+        tpl = ConfigStore(agentConfig=self.agentConfig).get_check_tpl(image_name, auto_conf=auto_conf)
 
         if tpl is not None and len(tpl) == 3 and all(tpl):
             check_name, init_config_tpl, instance_tpl = tpl

@@ -396,12 +396,13 @@ def get_config(parse_args=True, cfg_path=None, options=None):
             agentConfig['use_dogstatsd'] = True
 
         # Service discovery
-        if config.has_option('Main', 'service_discovery_backend') and \
-                config.has_option('Main', 'sd_config_backend'):
-
+        if config.has_option('Main', 'service_discovery_backend'):
             backend = config.get('Main', 'service_discovery_backend')
-            conf_backend = config.get('Main', 'sd_config_backend')
             agentConfig['service_discovery'] = True
+
+            conf_backend = None
+            if config.has_option('Main', 'sd_config_backend'):
+                conf_backend = config.get('Main', 'sd_config_backend')
 
             # This flag is used to tell the agent it needs to run reload_configs
             agentConfig['reload_check_configs'] = False
@@ -411,10 +412,14 @@ def get_config(parse_args=True, cfg_path=None, options=None):
                           "Service discovery won't be enabled.".format(backend))
                 agentConfig['service_discovery'] = False
 
-            if conf_backend not in SD_CONFIG_BACKENDS:
+            if conf_backend is None:
+                log.warning('No configuration backend provided for service discovery. '
+                            'Only auto config templates will be used.')
+            elif conf_backend not in SD_CONFIG_BACKENDS:
                 log.error("The config backend {0} is not supported. "
-                          "Service discovery won't be enabled.".format(conf_backend))
-                agentConfig['service_discovery'] = False
+                          "Only auto config templates will be used.".format(conf_backend))
+                conf_backend = None
+            agentConfig['sd_config_backend'] = conf_backend
 
             additional_config = ConfigStore.extract_sd_config(config)
 

@@ -1,7 +1,4 @@
 # std
-import glob
-import imp
-import inspect
 import itertools
 import logging
 import simplejson as json
@@ -55,6 +52,8 @@ class ConfigStore(object):
                 cls._instance = object.__new__(EtcdStore, agentConfig)
             elif agentConfig.get('sd_config_backend') == 'consul':
                 cls._instance = object.__new__(ConsulStore, agentConfig)
+            elif agentConfig.get('sd_config_backend') is None:
+                cls._instance = object.__new__(StubStore, agentConfig)
         return cls._instance
 
     def __init__(self, agentConfig):
@@ -107,25 +106,33 @@ class ConfigStore(object):
 
     def get_check_tpl(self, image, **kwargs):
         """Retrieve template config strings from the ConfigStore."""
-        try:
-            # Try to read from the user-supplied config
-            check_name = self.client_read(path.join(self.sd_template_dir, image, 'check_name').lstrip('/'))
-            init_config_tpl = self.client_read(path.join(self.sd_template_dir, image, 'init_config').lstrip('/'))
-            instance_tpl = self.client_read(path.join(self.sd_template_dir, image, 'instance').lstrip('/'))
-        except (KeyNotFound, TimeoutError):
-            # If it failed, try to read from auto-config templates
-            log.info("Could not find directory {0} in the config store, "
-                     "trying to auto-configure the check...".format(image))
+        # this flag is used when no valid configuration store was provided
+        if kwargs.get('auto_conf') is True:
             auto_config = self._get_auto_config(image)
             if auto_config is not None:
                 check_name, init_config_tpl, instance_tpl = auto_config
             else:
                 return None
-        except Exception:
-            log.info(
-                'Fetching the value for {0} in the config store failed, '
-                'this check will not be configured by the service discovery.'.format(image))
-            return None
+        else:
+            try:
+                # Try to read from the user-supplied config
+                check_name = self.client_read(path.join(self.sd_template_dir, image, 'check_name').lstrip('/'))
+                init_config_tpl = self.client_read(path.join(self.sd_template_dir, image, 'init_config').lstrip('/'))
+                instance_tpl = self.client_read(path.join(self.sd_template_dir, image, 'instance').lstrip('/'))
+            except (KeyNotFound, TimeoutError):
+                # If it failed, try to read from auto-config templates
+                log.info("Could not find directory {0} in the config store, "
+                         "trying to auto-configure the check...".format(image))
+                auto_config = self._get_auto_config(image)
+                if auto_config is not None:
+                    check_name, init_config_tpl, instance_tpl = auto_config
+                else:
+                    return None
+            except Exception:
+                log.info(
+                    'Fetching the value for {0} in the config store failed, '
+                    'this check will not be configured by the service discovery.'.format(image))
+                return None
         template = [check_name, init_config_tpl, instance_tpl]
         return template
 
@@ -149,6 +156,15 @@ class ConfigStore(object):
             sd_config['sd_backend_port'] = config.get(
                 'Main', 'sd_backend_port')
         return sd_config
+
+
+class StubStore(ConfigStore):
+    """Used when no valid config store was found. Allow to use auto_config."""
+    def _extract_settings(self, config):
+        pass
+
+    def get_client(self):
+        pass
 
 
 class EtcdStore(ConfigStore):
