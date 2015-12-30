@@ -328,10 +328,46 @@ class WMISampler(object):
                 more=build_where_clause(fltr, inclusive)
             )
 
+        def build_where_clause_multi(fltr):
+            f = fltr.pop()
+            wql = ""
+            while f:
+                prop, value = f.popitem()
+
+                if isinstance(value, tuple):
+                    oper = value[0]
+                    value = value[1]
+                else:
+                    oper = '='
+
+                if isinstance(value, list):
+                    internal_filter = map(lambda x:
+                                          {prop: x} if isinstance(x, tuple)
+                                          else {prop: (oper, x)}, value)
+                    wql += "( {clause} )".format(
+                        clause=build_where_clause(internal_filter, inclusive=True))
+
+                else:
+                    wql += "{property} {cmp} '{constant}'".format(
+                        property=prop,
+                        cmp=oper,
+                        constant=value)
+                if f:
+                    wql += " AND "
+
+            if len(fltr) == 0:
+                    return "( {clause} )".format(clause=wql)
+
+            return "( {clause} ) OR {more}".format(
+                clause=wql,
+                more=build_where_clause_multi(fltr)
+            )
+
+
         if not filters:
             return ""
 
-        return " WHERE {clause}".format(clause=build_where_clause(filters, inclusive))
+        return " WHERE {clause}".format(clause=build_where_clause_multi(filters))
 
     def _query(self):
         """

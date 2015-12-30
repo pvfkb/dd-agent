@@ -331,10 +331,26 @@ class TestUnitWMISampler(TestCommonWMI):
 
         # Check `_format_filter` logic
         no_filters = []
-        filters = [{'Name': "SomeName"}, {'Id': "SomeId"}]
+        filters = [{'Name': "SomeName", 'Id': "SomeId"}]
 
         self.assertEquals("", format_filter(no_filters))
-        self.assertEquals(" WHERE Id = 'SomeId' AND Name = 'SomeName'",
+        self.assertEquals(" WHERE ( Name = 'SomeName' AND Id = 'SomeId' )",
+                          format_filter(filters))
+
+    def test_wql_multiquery_filtering(self):
+        """
+        Format the filters with multiple properties per instance to a comprehensive WQL `WHERE` clause.
+        """
+        from checks.libs.wmi import sampler
+        format_filter = sampler.WMISampler._format_filter
+
+        # Check `_format_filter` logic
+        no_filters = []
+        filters = [{'Name': "SomeName", 'Property1': "foo"}, {'Name': "OtherName", 'Property1': "bar"}]
+
+        self.assertEquals("", format_filter(no_filters))
+        self.assertEquals(" WHERE ( Name = 'SomeId' AND Property1 = 'foo' ) OR"
+                          " ( Name = 'SomeId' AND Property1 = 'foo' )",
                           format_filter(filters))
 
     def test_wql_filtering_inclusive(self):
@@ -346,7 +362,7 @@ class TestUnitWMISampler(TestCommonWMI):
 
         # Check `_format_filter` logic
         filters = [{'Name': "SomeName"}, {'Id': "SomeId"}]
-        self.assertEquals(" WHERE Id = 'SomeId' OR Name = 'SomeName'",
+        self.assertEquals(" WHERE ( Id = 'SomeId' ) OR ( Name = 'SomeName' )",
                           format_filter(filters, True))
 
     def test_wql_filtering_list(self):
@@ -357,7 +373,7 @@ class TestUnitWMISampler(TestCommonWMI):
         format_filter = sampler.WMISampler._format_filter
 
         # Check `_format_filter` logic
-        filters = [{'Name': ["Foo", "Bar"]}, {'Id': "SomeId"}]
+        filters = [{'Name': ["Foo", "Bar"], 'Id': "SomeId"}, {'Name': "SomeName"}]
         self.assertEquals(" WHERE Id = 'SomeId' AND ( Name = 'Bar' OR Name = 'Foo' )",
                           format_filter(filters))
 
@@ -410,20 +426,20 @@ class TestUnitWMISampler(TestCommonWMI):
             wmi_sampler,
             "Select AvgDiskBytesPerWrite,FreeMegabytes"
             " from Win32_PerfFormattedData_PerfDisk_LogicalDisk"
-            " WHERE Name = 'C:'"
+            " WHERE ( Name = 'C:' )"
         )
 
         # Multiple filters
         wmi_sampler = WMISampler("Win32_PerfFormattedData_PerfDisk_LogicalDisk",
                                  ["AvgDiskBytesPerWrite", "FreeMegabytes"],
-                                 filters=[{'Name': "C:"}, {'Id': "123"}])
+                                 filters=[{'Name': "C:", 'Id': "123"}])
         wmi_sampler.sample()
 
         self.assertWMIQuery(
             wmi_sampler,
             "Select AvgDiskBytesPerWrite,FreeMegabytes"
             " from Win32_PerfFormattedData_PerfDisk_LogicalDisk"
-            " WHERE Id = '123' AND Name = 'C:'"
+            " WHERE ( Name = 'C:' AND Id = '123' )"
         )
 
     def test_wmi_parser(self):
