@@ -252,7 +252,7 @@ class ProcessCheck(AgentCheck):
 
         if search_string is None:
             if pid is not None:
-                pids = {proc for proc in psutil.pids() if proc == pid}
+                pids = [psutil.Process(pid)]
             else:
                 raise KeyError('The "search_string" is mandatory')
 
