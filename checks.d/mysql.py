@@ -129,7 +129,7 @@ class MySql(AgentCheck):
                 host=host, 
                 user=user, 
                 passwd=password, 
-                ssl=dict(ssl)
+                ssl=dict(ssl))
             else:
                 db = pymysql.connect(
                     host=host,
